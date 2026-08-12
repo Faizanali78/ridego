@@ -64,3 +64,4 @@ See `API.md` for the complete route and authorization reference.
 ## Production migration
 
 For an internet-enabled production deployment, keep the API contracts and replace `data.json` with MongoDB/Mongoose collections (including `2dsphere` driver locations), add Socket.IO rooms for live tracking, and connect the credentials in `.env.example` to Google Maps, Stripe, Cloudinary, email and SMS providers. Put secrets in Render/Vercel environment settings, use HTTPS + secure HttpOnly refresh cookies, and use a managed database; never use the local JSON store for production.
+DEployment Refresh
