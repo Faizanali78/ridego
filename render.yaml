@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: ridego
+    runtime: node
+    plan: free
+    buildCommand: node --check server.cjs
+    startCommand: node server.cjs
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: CLIENT_URL
+        sync: false
+      - key: ADMIN_URL
+        sync: false
+      - key: RAZORPAY_KEY_SECRET
+        sync: false

@@ -1,0 +1,41 @@
+.payment-card {
+  text-align: center;
+}
+
+.payment-card > button {
+  width: 100%;
+  margin-top: 10px;
+}
+
+.fare-summary {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  margin: 20px 0;
+  padding: 16px;
+  border-radius: 12px;
+  background: #faf8f3;
+  text-align: left;
+}
+
+.fare-summary span:nth-last-child(2),
+.fare-summary b:last-child {
+  padding-top: 10px;
+  border-top: 1px solid #e9e4d9;
+  font-size: 18px;
+}
+
+.secure-note {
+  color: #047857;
+  font-size: 12px;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  filter: grayscale(1);
+  opacity: .55;
+}
+
+.metric .secondary {
+  margin-top: 10px;
+}

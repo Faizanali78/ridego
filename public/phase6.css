@@ -1,0 +1,106 @@
+.notification-list,
+.support-board,
+.zone-list,
+.incentive-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.notification {
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  gap: 12px;
+  align-items: start;
+}
+
+.notification.unread {
+  border-left: 4px solid #f59e0b;
+  background: #fffdf5;
+}
+
+.notification-icon {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border-radius: 50%;
+  background: #fff1bb;
+  color: #92400e;
+  font-weight: 900;
+}
+
+.notification p {
+  margin: 6px 0;
+}
+
+.notification small {
+  color: #697386;
+}
+
+.faq-grid,
+.safety-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.safety-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+  background: #172033;
+  color: white;
+}
+
+.safety-hero span {
+  font-size: 72px;
+}
+
+.safety-hero a {
+  color: #fbbf24;
+  font-weight: 800;
+}
+
+.sos-button {
+  padding: 12px 17px;
+  border-radius: 11px;
+  background: #dc2626;
+  color: white;
+  font-weight: 900;
+}
+
+.incentive-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.progress {
+  height: 10px;
+  overflow: hidden;
+  border-radius: 20px;
+  background: #e9e4d9;
+}
+
+.progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #fbbf24;
+}
+
+.zone-list code {
+  display: block;
+  overflow: auto;
+  padding: 10px;
+  border-radius: 8px;
+  background: #f5f3ed;
+  font-size: 11px;
+}
+
+@media (max-width: 700px) {
+  .faq-grid,
+  .safety-grid,
+  .incentive-grid {
+    grid-template-columns: 1fr;
+  }
+}

@@ -1,0 +1,134 @@
+.admin-label {
+  padding: 5px 11px 12px;
+  color: #b45309;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 1px;
+}
+
+.admin-content {
+  min-width: 0;
+}
+
+.admin-heading h1 {
+  margin: 4px 0 0;
+}
+
+.admin-grid {
+  display: grid;
+  grid-template-columns: 1.4fr .8fr;
+  gap: 16px;
+}
+
+.activity-list > div {
+  display: grid;
+  gap: 3px;
+  padding: 10px 0;
+  border-bottom: 1px solid #e9e4d9;
+}
+
+.activity-list small {
+  color: #697386;
+}
+
+.filter-bar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 13px;
+}
+
+.filter-bar input,
+.filter-bar select {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid #e9e4d9;
+  border-radius: 10px;
+  background: #fafafa;
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 16px;
+}
+
+.online-dot {
+  color: #047857;
+  font-weight: 750;
+}
+
+.pricing-grid,
+.report-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.pricing-card .icon {
+  font-size: 28px;
+}
+
+.pricing-card h3 {
+  margin: 4px 0 13px;
+}
+
+.pricing-fields {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.pricing-fields label {
+  color: #697386;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.pricing-fields input {
+  display: block;
+  width: 100%;
+  margin-top: 5px;
+  padding: 9px;
+  border: 1px solid #e9e4d9;
+  border-radius: 9px;
+}
+
+.global-pricing {
+  align-items: end;
+}
+
+.support-board {
+  display: grid;
+  gap: 12px;
+}
+
+.ticket h3 {
+  margin: 8px 0;
+}
+
+.ticket-messages {
+  margin: 12px 0;
+  padding-left: 12px;
+  border-left: 3px solid #fbbf24;
+}
+
+.report-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.report-icon {
+  font-size: 32px;
+  color: #b45309;
+}
+
+@media (max-width: 850px) {
+  .admin-grid,
+  .pricing-grid,
+  .report-grid {
+    grid-template-columns: 1fr;
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "name": "ridego",
+  "version": "1.0.0",
+  "private": true,
+  "description": "RideGo — install-free local ride booking platform demo",
+  "scripts": {
+    "start": "node server.cjs",
+    "dev": "node server.cjs",
+    "test": "node --test tests",
+    "doctor": "node scripts/doctor.cjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "mongodb": "^7.5.0",
+    "socket.io": "^4.8.3"
+  }
+}
