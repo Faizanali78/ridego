@@ -1,24 +1,23 @@
 /* RideGo local server — dependency-free so it runs on restricted networks.
    Swap the JSON repository in production for the Mongoose repositories described in README. */
 const http = require('http'), https = require('https'), fs = require('fs'), path = require('path'), crypto = require('crypto'), { URL } = require('url'), { Server: SocketIOServer } = require('socket.io');
-const ENV_PATH=path.join(__dirname,'.env');
-if(fs.existsSync(ENV_PATH))for(const rawLine of fs.readFileSync(ENV_PATH,'utf8').split(/\r?\n/)){const line=rawLine.trim();if(!line||line.startsWith('#'))continue;const separator=line.indexOf('=');if(separator<1)continue;const key=line.slice(0,separator).trim(),rawValue=line.slice(separator+1).trim(),value=(rawValue.startsWith('"')&&rawValue.endsWith('"'))||(rawValue.startsWith("'")&&rawValue.endsWith("'"))?rawValue.slice(1,-1):rawValue;if(process.env[key]===undefined)process.env[key]=value;}
-const ROOT = __dirname, PUBLIC = path.join(ROOT, 'public'), DATA = process.env.DATA_FILE ? path.resolve(process.env.DATA_FILE) : path.join(ROOT, 'data.json');
+const { loadEnv, createAppConfig } = require('./config/env.cjs');
+const { controllerGroups } = require('./controllers/index.cjs');
+const { applySecurityHeaders, applyCorsHeaders, handleOptions } = require('./middleware/httpMiddleware.cjs');
+const { RIDE_CATEGORIES, MONGO_COLLECTIONS, ACTIVE_RIDE_STATUSES, CUSTOMER_BLOCKING_RIDE_STATUSES, DRIVER_BUSY_RIDE_STATUSES, SOS_RIDE_STATUSES } = require('./models/domainModels.cjs');
+loadEnv(__dirname);
+const appConfig = createAppConfig(__dirname);
+const ROOT = appConfig.root, PUBLIC = appConfig.publicDir, DATA = appConfig.dataFile;
 // DATA_FILE is deliberately kept as a test/offline override. In normal local use,
 // MONGODB_URI makes MongoDB the persistence source of truth.
-const MONGODB_URI = process.env.DATA_FILE ? '' : String(process.env.MONGODB_URI || '').trim();
+const MONGODB_URI = appConfig.mongodbUri;
 let MongoClient;
 if(MONGODB_URI){
   try{({MongoClient}=require('mongodb'));}
   catch{console.error('MongoDB mode requires the mongodb package. Run npm install or unset MONGODB_URI to use local JSON storage.');process.exit(1);}
 }
-const PORT = Number(process.env.PORT || 3000), SECRET = process.env.JWT_ACCESS_SECRET || 'ridego-local-development-secret-change-me', REFRESH_SECRET=process.env.JWT_REFRESH_SECRET||SECRET;
-const categories = [
-  {id:'bike',name:'Bike',icon:'🏍️',seats:1,base:25,perKm:8,perMin:1.2,min:35,eta:3,enabled:true},
-  {id:'economy',name:'Economy',icon:'🚕',seats:4,base:45,perKm:12,perMin:1.6,min:65,eta:5,enabled:true},
-  {id:'sedan',name:'Sedan',icon:'🚖',seats:4,base:70,perKm:16,perMin:2,min:95,eta:7,enabled:true},
-  {id:'suv',name:'SUV',icon:'🚙',seats:6,base:110,perKm:22,perMin:2.6,min:145,eta:9,enabled:true}
-];
+const PORT = appConfig.port, SECRET = appConfig.jwtAccessSecret, REFRESH_SECRET=appConfig.jwtRefreshSecret;
+const categories = RIDE_CATEGORIES.map(category=>({...category}));
 const now = () => new Date().toISOString();
 const id = (p) => p + '_' + crypto.randomBytes(5).toString('hex');
 const hash = (v, salt=crypto.randomBytes(16).toString('hex')) => { const h=crypto.scryptSync(v,salt,64).toString('hex'); return salt+':'+h; };
@@ -29,7 +28,7 @@ const baseData = () => ({ users:[
   {id:'driver_bike',role:'driver',name:'Rahul Verma',email:'driver@ridego.local',phone:'9000000002',password:hash('Driver@123'),status:'approved',online:true,category:'bike',vehicle:'Honda Activa • DL 1S AB 3421',rating:4.9,wallet:1840,location:{lat:28.6139,lng:77.2090},createdAt:now()},
   {id:'driver_car',role:'driver',name:'Priya Singh',email:'car@ridego.local',phone:'9000000003',password:hash('Driver@123'),status:'approved',online:true,category:'economy',vehicle:'Maruti Dzire • DL 1R CE 7788',rating:4.8,wallet:2260,location:{lat:28.615,lng:77.212},createdAt:now()}
 ], rides:[], payments:[], walletTransactions:[], driverEarnings:[], withdrawals:[], refunds:[], supportTickets:[], adminLogs:[], notifications:[], ratings:[], safetyIncidents:[], refreshSessions:[], serviceZones:[{id:'zone_delhi',name:'Central Delhi',city:'Delhi',active:true,geometry:{type:'Polygon',coordinates:[[[77.10,28.50],[77.35,28.50],[77.35,28.75],[77.10,28.75],[77.10,28.50]]]}}], incentives:[{id:'inc_five',name:'5 Ride Boost',description:'Complete 5 rides and earn ₹150',targetRides:5,reward:150,active:true}], categories:categories.map(x=>({...x})), coupons:[{id:'coupon_welcome',code:'WELCOME50',kind:'percent',value:50,max:50,min:100,usageLimit:1000,used:0,active:true},{id:'coupon_ridego',code:'RIDEGO20',kind:'fixed',value:20,max:20,min:80,usageLimit:5000,used:0,active:true}], settings:{brand:'RideGo',support:'+91 1800 000 1234',commission:20,searchRadius:5,platformFee:5,taxPct:5,surge:1,minWithdrawal:500,maxDailyWithdrawal:5000,withdrawalFee:0}});
-const mongoCollections=['users','rides','payments','walletTransactions','driverEarnings','withdrawals','refunds','supportTickets','adminLogs','notifications','ratings','safetyIncidents','refreshSessions','serviceZones','incentives','categories','coupons'];
+const mongoCollections=MONGO_COLLECTIONS;
 let db, mongoClient, mongoDatabase, io, persistenceMode='local-json', saveQueue=Promise.resolve();
 function normaliseDb(value){
   const data=value&&typeof value==='object'?value:baseData();
@@ -66,7 +65,7 @@ function save(){
   const snapshot=structuredClone(db); saveQueue=saveQueue.catch(()=>{}).then(()=>writeMongo(snapshot));
   saveQueue.catch(error=>console.error('MongoDB persistence failed:',error.message));
 }
-const IS_PROD=process.env.NODE_ENV==='production';
+const IS_PROD=appConfig.isProd;
 const cookieMap=req=>Object.fromEntries(String(req.headers.cookie||'').split(';').map(x=>x.trim()).filter(Boolean).map(x=>{const i=x.indexOf('=');return [x.slice(0,i),decodeURIComponent(x.slice(i+1))];}));
 function token(user,type='access',jti=id('jti')){const ttl=type==='refresh'?30*86400:15*60,h={alg:'HS256',typ:'JWT'},p={sub:user.id,role:user.role,type,jti,iat:Math.floor(Date.now()/1000),exp:Math.floor(Date.now()/1000)+ttl},e=x=>Buffer.from(JSON.stringify(x)).toString('base64url'),v=e(h)+'.'+e(p),signingSecret=type==='refresh'?REFRESH_SECRET:SECRET;return v+'.'+crypto.createHmac('sha256',signingSecret).update(v).digest('base64url');}
 function decodeToken(value,type){try{const [h,p,s]=String(value||'').split('.'),signingSecret=type==='refresh'?REFRESH_SECRET:SECRET,expected=crypto.createHmac('sha256',signingSecret).update(h+'.'+p).digest('base64url');if(!h||!p||!s||s.length!==expected.length||!crypto.timingSafeEqual(Buffer.from(s),Buffer.from(expected)))return null;const data=JSON.parse(Buffer.from(p,'base64url'));return data.exp*1000>Date.now()&&(!type||data.type===type)?data:null;}catch{return null;}}
@@ -89,8 +88,8 @@ const geoPoint=p=>{const point=pointOf(p);return point?{type:'Point',coordinates
 function setUserLocation(user,point,heading=0){const location=storedPoint(point);if(!location)return null;user.location=location;user.locationGeo=geoPoint(location);user.lastLocationAt=now();user.heading=Number(heading)||0;return location;}
 function distance(a,b){ const pa=pointOf(a),pb=pointOf(b),r=6371,d=x=>x*Math.PI/180, x=d(pb.lat-pa.lat),y=d(pb.lng-pa.lng),z=Math.sin(x/2)**2+Math.cos(d(pa.lat))*Math.cos(d(pb.lat))*Math.sin(y/2)**2; return 2*r*Math.asin(Math.sqrt(z)); }
 function estimate(data){ const routeKm=validPoint(data.pickupLocation)&&validPoint(data.destinationLocation)?distance(data.pickupLocation,data.destinationLocation)*1.22:0,km=Math.max(1,Number(data.distance)||routeKm||5), mins=Math.max(5,Number(data.minutes)||Math.round(km*4)); return db.categories.filter(c=>c.enabled).map(c=>{ const subtotal=Math.max(c.min,c.base+c.perKm*km+c.perMin*mins); const fee=db.settings.platformFee, tax=Math.round((subtotal+fee)*db.settings.taxPct)/100, fare=Math.round((subtotal+fee+tax)*db.settings.surge); return {...c,distance:Number(km.toFixed(1)),minutes:mins,fare,breakdown:{base:c.base,distance:Math.round(c.perKm*km),time:Math.round(c.perMin*mins),platformFee:fee,tax, surge:db.settings.surge}}; }); }
-function nearbyDrivers(category,pickup,excluded=[]){if(!validPoint(pickup))return [];const busy=new Set(db.rides.filter(r=>['driver_assigned','driver_arriving','driver_arrived','ride_started'].includes(r.status)).map(r=>r.driverId));return db.users.filter(d=>d.role==='driver'&&d.status==='approved'&&d.online&&d.category===category&&validPoint(d.location)&&!busy.has(d.id)&&!excluded.includes(d.id)).map(d=>({...d,distanceToPickup:Number(distance(d.location,pickup).toFixed(2))})).filter(d=>d.distanceToPickup<=Number(db.settings.searchRadius||5)).sort((a,b)=>a.distanceToPickup-b.distanceToPickup);}
-const RAZORPAY_KEY_ID=String(process.env.RAZORPAY_KEY_ID||'').trim(),PAYMENT_SECRET=process.env.RAZORPAY_KEY_SECRET||SECRET;
+function nearbyDrivers(category,pickup,excluded=[]){if(!validPoint(pickup))return [];const busy=new Set(db.rides.filter(r=>ACTIVE_RIDE_STATUSES.includes(r.status)).map(r=>r.driverId));return db.users.filter(d=>d.role==='driver'&&d.status==='approved'&&d.online&&d.category===category&&validPoint(d.location)&&!busy.has(d.id)&&!excluded.includes(d.id)).map(d=>({...d,distanceToPickup:Number(distance(d.location,pickup).toFixed(2))})).filter(d=>d.distanceToPickup<=Number(db.settings.searchRadius||5)).sort((a,b)=>a.distanceToPickup-b.distanceToPickup);}
+const RAZORPAY_KEY_ID=appConfig.razorpayKeyId,PAYMENT_SECRET=appConfig.razorpayKeySecret||SECRET;
 const paymentSignature=(orderId,paymentId)=>crypto.createHmac('sha256',PAYMENT_SECRET).update(`${orderId}|${paymentId}`).digest('hex');
 function razorpayOrder(amount,receipt){return new Promise((resolve,reject)=>{const payload=JSON.stringify({amount:Math.round(amount*100),currency:'INR',receipt,payment_capture:1}),req=https.request({hostname:'api.razorpay.com',path:'/v1/orders',method:'POST',auth:`${RAZORPAY_KEY_ID}:${PAYMENT_SECRET}`,headers:{'Content-Type':'application/json','Content-Length':Buffer.byteLength(payload)}},res=>{let raw='';res.on('data',chunk=>raw+=chunk);res.on('end',()=>{try{const data=JSON.parse(raw||'{}');res.statusCode>=200&&res.statusCode<300?resolve(data):reject(new Error(data.error?.description||'Razorpay order creation failed'));}catch(error){reject(error);}});});req.on('error',reject);req.write(payload);req.end();});}
 function walletEntry(user,type,amount,reason,reference,details={}){const entry={id:id('wtx'),userId:user.id,wallet:user.role,type,amount:Number(amount),reason,reference,rideId:details.rideId||null,balanceAfter:user.wallet||0,createdAt:now(),...details};db.walletTransactions.unshift(entry);return entry;}
@@ -154,7 +153,7 @@ function setupSocketIO(server){
     socket.on('driverLocation',({rideId,latitude,longitude,lat,lng,heading}={},ack=()=>{})=>{
       try{
         if(user.role!=='driver'||user.status!=='approved')throw Object.assign(new Error('Approved driver account required'),{status:403});
-        const ride=db.rides.find(r=>r.id===rideId&&r.driverId===user.id&&['driver_assigned','driver_arriving','driver_arrived','ride_started'].includes(r.status));
+        const ride=db.rides.find(r=>r.id===rideId&&r.driverId===user.id&&ACTIVE_RIDE_STATUSES.includes(r.status));
         const location=storedPoint({latitude:latitude??lat,longitude:longitude??lng});
         if(!ride)throw Object.assign(new Error('Active assigned ride not found'),{status:404});
         if(!location)throw Object.assign(new Error('A valid latitude and longitude are required'),{status:400});
@@ -178,6 +177,7 @@ async function assignDriverToRide(ride,driver,request){
 }
 async function api(req,res,url){ const method=req.method, p=url.pathname, user=auth(req), need=(role)=>{if(!user)throw Object.assign(new Error('Sign in required'),{status:401}); if(role&&user.role!==role)throw Object.assign(new Error('Permission denied'),{status:403});};
   if(method==='GET'&&p==='/api/health') return send(res,200,{ok:true,mode:persistenceMode,time:now()});
+  if(method==='GET'&&p==='/api/controllers') return send(res,200,{controllers:controllerGroups});
   if(method==='GET'&&p==='/api/events'){need();openEventStream(req,res,user);return;}
   if(method==='POST'&&p==='/api/auth/refresh'){
     const refreshToken=cookieMap(req).ridego_refresh||String((await body(req)).refreshToken||''),payload=decodeToken(refreshToken,'refresh'),session=payload&&db.refreshSessions.find(s=>s.id===payload.jti&&s.userId===payload.sub&&!s.revoked&&s.expiresAt>Date.now()&&s.digest===sessionDigest(refreshToken)),account=payload&&db.users.find(u=>u.id===payload.sub);
@@ -200,7 +200,7 @@ async function api(req,res,url){ const method=req.method, p=url.pathname, user=a
     const serviceZone=zoneForPoint(pickup);
     if(!serviceZone)throw Object.assign(new Error('Pickup is outside an active RideGo service zone'),{status:400});
     if(!option)throw Object.assign(new Error('Choose an available vehicle category'),{status:400});
-    if(db.rides.some(r=>r.customerId===user.id&&['searching','driver_assigned','driver_arriving','driver_arrived','ride_started'].includes(r.status)))throw Object.assign(new Error('Complete or cancel your active ride first'),{status:409});
+    if(db.rides.some(r=>r.customerId===user.id&&CUSTOMER_BLOCKING_RIDE_STATUSES.includes(r.status)))throw Object.assign(new Error('Complete or cancel your active ride first'),{status:409});
     let discount=0,coupon=null;
     if(b.coupon){coupon=db.coupons.find(c=>c.active&&c.code===String(b.coupon).toUpperCase()&&(c.used||0)<(c.usageLimit||Infinity));if(!coupon)throw Object.assign(new Error('Coupon is invalid, expired, or fully used'),{status:400});if(option.fare<coupon.min)throw Object.assign(new Error(`Coupon needs a ₹${coupon.min} fare`),{status:400});discount=Math.min(coupon.max,coupon.kind==='percent'?Math.round(option.fare*coupon.value/100):coupon.value);}
     const scheduledAt=b.scheduledAt?new Date(b.scheduledAt):null;
@@ -247,7 +247,7 @@ async function api(req,res,url){ const method=req.method, p=url.pathname, user=a
       save();return send(res,200,{message:'Ride request declined.'});
     }
     if(!user.online||user.status!=='approved')throw Object.assign(new Error('Go online with an approved account before accepting rides'),{status:403});
-    if(db.rides.some(r=>r.driverId===user.id&&['driver_assigned','driver_arriving','driver_arrived','ride_started'].includes(r.status)))throw Object.assign(new Error('Complete your active ride first'),{status:409});
+    if(db.rides.some(r=>r.driverId===user.id&&ACTIVE_RIDE_STATUSES.includes(r.status)))throw Object.assign(new Error('Complete your active ride first'),{status:409});
     await assignDriverToRide(ride,user,request);
     notify(ride.customerId,'ride','Driver assigned',`${user.name} accepted your ride.`,{rideId:ride.id});save();emitRide(ride,'ride:driver:assigned',{status:ride.status,driver:{id:user.id,name:user.name,rating:user.rating,vehicle:user.vehicle,location:publicPoint(user.location)}});return send(res,200,{ride:safeRide(ride,user),message:'Ride accepted. Navigate to the pickup.'});
   }
@@ -281,7 +281,7 @@ async function api(req,res,url){ const method=req.method, p=url.pathname, user=a
     return send(res,200,{ride:safeRide(r,user)});
   }
   if(method==='POST'&&p==='/api/drivers/online'){need('driver');if(user.status!=='approved')throw Object.assign(new Error('Your account is awaiting approval'),{status:403});const b=await body(req),wasOnline=!!user.online;user.online=!!b.online;if(user.online&&!wasOnline)user.lastOnlineAt=now();if(!user.online&&wasOnline)user.lastOfflineAt=now();if(b.location)setUserLocation(user,b.location,b.heading);save();return send(res,200,{user:safe(user)});}
-  if(method==='POST'&&p==='/api/drivers/location'){need('driver');const b=await body(req),location=storedPoint(b.location||b);if(!location)throw Object.assign(new Error('A valid location is required'),{status:400});setUserLocation(user,location,b.heading);const active=db.rides.find(r=>r.driverId===user.id&&['driver_assigned','driver_arriving','driver_arrived','ride_started'].includes(r.status));if(active){active.locationHistory=active.locationHistory||[];active.locationHistory.push({location:publicPoint(location),at:user.lastLocationAt,heading:Number(b.heading)||0});if(active.locationHistory.length>120)active.locationHistory=active.locationHistory.slice(-120);}save();if(active)broadcastDriverLocation(active,user,location,b.heading);return send(res,200,{ok:true,activeRideId:active?.id||null,location:publicPoint(location)});}
+  if(method==='POST'&&p==='/api/drivers/location'){need('driver');const b=await body(req),location=storedPoint(b.location||b);if(!location)throw Object.assign(new Error('A valid location is required'),{status:400});setUserLocation(user,location,b.heading);const active=db.rides.find(r=>r.driverId===user.id&&ACTIVE_RIDE_STATUSES.includes(r.status));if(active){active.locationHistory=active.locationHistory||[];active.locationHistory.push({location:publicPoint(location),at:user.lastLocationAt,heading:Number(b.heading)||0});if(active.locationHistory.length>120)active.locationHistory=active.locationHistory.slice(-120);}save();if(active)broadcastDriverLocation(active,user,location,b.heading);return send(res,200,{ok:true,activeRideId:active?.id||null,location:publicPoint(location)});}
   if(method==='GET'&&p==='/api/wallets'){
     need();
     const pending=user.role==='driver'?db.withdrawals.filter(w=>w.driverId===user.id&&['requested','processing'].includes(w.status)).reduce((sum,w)=>sum+w.amount+w.fee,0):0;
@@ -308,7 +308,7 @@ async function api(req,res,url){ const method=req.method, p=url.pathname, user=a
     const prior=db.payments.find(x=>x.idempotencyKey===key&&x.userId===user.id);
     if(prior)return send(res,200,{order:safePayment(prior),testPayment:prior.provider==='local_signed'?{paymentId:prior.testPaymentId,signature:prior.expectedSignature}:undefined});
     let orderId=id('order'),provider='local_signed',razorpay=null;
-    if(RAZORPAY_KEY_ID&&process.env.RAZORPAY_KEY_SECRET){razorpay=await razorpayOrder(ride.finalFare,ride.rideCode);orderId=razorpay.id;provider='razorpay';}
+    if(RAZORPAY_KEY_ID&&appConfig.razorpayKeySecret){razorpay=await razorpayOrder(ride.finalFare,ride.rideCode);orderId=razorpay.id;provider='razorpay';}
     const testPaymentId=id('payref'),payment={id:id('pay'),orderId,testPaymentId,userId:user.id,rideId:ride.id,type:'ride_payment',amount:ride.finalFare,currency:'INR',status:'created',provider,idempotencyKey:key,expectedSignature:paymentSignature(orderId,testPaymentId),createdAt:now()};
     db.payments.unshift(payment);save();return send(res,201,{order:{...safePayment(payment),keyId:provider==='razorpay'?RAZORPAY_KEY_ID:undefined,amountPaise:Math.round(ride.finalFare*100),razorpay},testPayment:provider==='local_signed'?{paymentId:testPaymentId,signature:payment.expectedSignature}:undefined});
   }
@@ -400,7 +400,7 @@ async function api(req,res,url){ const method=req.method, p=url.pathname, user=a
   if(contactDelete&&method==='POST'){need('customer');user.emergencyContacts=(user.emergencyContacts||[]).filter(c=>c.id!==contactDelete[1]);save();return send(res,200,{contacts:user.emergencyContacts});}
   if(method==='POST'&&p==='/api/safety/sos'){
     need();
-    const b=await body(req),ride=db.rides.find(r=>r.id===b.rideId&&[r.customerId,r.driverId].includes(user.id)&&['driver_assigned','driver_arriving','driver_arrived','ride_started'].includes(r.status));
+    const b=await body(req),ride=db.rides.find(r=>r.id===b.rideId&&[r.customerId,r.driverId].includes(user.id)&&ACTIVE_RIDE_STATUSES.includes(r.status));
     if(!ride)throw Object.assign(new Error('No active ride found for SOS'),{status:404});
     const customer=db.users.find(u=>u.id===ride.customerId),contacts=customer?.emergencyContacts||[],incident={id:id('sos'),rideId:ride.id,rideCode:ride.rideCode,customerId:ride.customerId,driverId:ride.driverId,userId:user.id,userRole:user.role,location:validPoint(b.location)?publicPoint(b.location):null,message:String(b.message||'Emergency assistance requested').slice(0,500),status:'open',contactNotifications:contacts.map(c=>({contactId:c.id,name:c.name,phone:c.phone,status:'queued',createdAt:now()})),createdAt:now()};db.safetyIncidents.unshift(incident);for(const admin of db.users.filter(u=>u.role==='admin'))notify(admin.id,'sos','Emergency SOS',`${user.name} triggered SOS on ${ride.rideCode}.`,{incidentId:incident.id,rideId:ride.id});const other=ride.customerId===user.id?ride.driverId:ride.customerId;if(other)notify(other,'sos','Ride safety alert','Emergency assistance was requested for this ride.',{rideId:ride.id});for(const contact of contacts)notify(ride.customerId,'sos','Emergency contact notified',`${contact.name} has been queued for SOS notification.`,{incidentId:incident.id,contactId:contact.id});save();emitRide(ride,'notification:new',{type:'sos',incidentId:incident.id});return send(res,201,{incident,message:`SOS sent to RideGo emergency support${contacts.length?` and ${contacts.length} emergency contact${contacts.length===1?'':'s'}`:''}.`});
   }
@@ -518,19 +518,17 @@ async function api(req,res,url){ const method=req.method, p=url.pathname, user=a
     };
     const data=definitions[type];audit(user,'report.export','report',type,{rows:data.rows.length});save();return csvResponse(res,`ridego-${type}.csv`,data.headers,data.rows);
   }
-  if(method==='GET'&&p==='/api/admin/dashboard'){need('admin');const today=new Date().toISOString().slice(0,10),customers=db.users.filter(u=>u.role==='customer'),drivers=db.users.filter(u=>u.role==='driver'),completed=db.rides.filter(r=>r.status==='ride_completed'),cancelled=db.rides.filter(r=>String(r.status).startsWith('cancelled')),todayRides=db.rides.filter(r=>String(r.createdAt).startsWith(today)),todayCompleted=completed.filter(r=>String(r.completedAt||r.createdAt).startsWith(today)),revenue=completed.reduce((n,r)=>n+r.finalFare*db.settings.commission/100,0),days=[...Array(7)].map((_,i)=>{const d=new Date(Date.now()-(6-i)*86400000).toISOString().slice(0,10),rides=db.rides.filter(r=>String(r.createdAt).startsWith(d)),done=completed.filter(r=>String(r.completedAt||r.createdAt).startsWith(d));return {date:d,rides:rides.length,revenue:done.reduce((n,r)=>n+r.finalFare*db.settings.commission/100,0)};}),categoryDistribution=db.categories.map(c=>({category:c.id,rides:db.rides.filter(r=>r.category===c.id).length}));return send(res,200,{metrics:{customers:customers.length,drivers:drivers.length,online:drivers.filter(d=>d.online).length,pending:drivers.filter(d=>d.status!=='approved').length,rides:db.rides.length,active:db.rides.filter(r=>['driver_assigned','driver_arriving','driver_arrived','ride_started'].includes(r.status)).length,completed:completed.length,cancelled:cancelled.length,todayRides:todayRides.length,todayCompleted:todayCompleted.length,todayRevenue:todayCompleted.reduce((n,r)=>n+r.finalFare*db.settings.commission/100,0),revenue,averageFare:completed.length?Math.round(completed.reduce((n,r)=>n+r.finalFare,0)/completed.length):0,averageRating:db.ratings.length?Number((db.ratings.reduce((n,r)=>n+r.rating,0)/db.ratings.length).toFixed(2)):0,cancellationRate:db.rides.length?Number((cancelled.length*100/db.rides.length).toFixed(1)):0},analytics:{ridesPerDay:days,revenuePerDay:days,categoryDistribution,driverVerification:{approved:drivers.filter(d=>d.status==='approved').length,pending:drivers.filter(d=>d.status!=='approved').length,rejected:drivers.filter(d=>d.status==='rejected').length}},activeSos:db.safetyIncidents.filter(i=>i.status==='open').slice(0,20),users:db.users.map(safe),rides:db.rides.map(r=>safeRide(r,user)),categories:db.categories,settings:db.settings});}
+  if(method==='GET'&&p==='/api/admin/dashboard'){need('admin');const today=new Date().toISOString().slice(0,10),customers=db.users.filter(u=>u.role==='customer'),drivers=db.users.filter(u=>u.role==='driver'),completed=db.rides.filter(r=>r.status==='ride_completed'),cancelled=db.rides.filter(r=>String(r.status).startsWith('cancelled')),todayRides=db.rides.filter(r=>String(r.createdAt).startsWith(today)),todayCompleted=completed.filter(r=>String(r.completedAt||r.createdAt).startsWith(today)),revenue=completed.reduce((n,r)=>n+r.finalFare*db.settings.commission/100,0),days=[...Array(7)].map((_,i)=>{const d=new Date(Date.now()-(6-i)*86400000).toISOString().slice(0,10),rides=db.rides.filter(r=>String(r.createdAt).startsWith(d)),done=completed.filter(r=>String(r.completedAt||r.createdAt).startsWith(d));return {date:d,rides:rides.length,revenue:done.reduce((n,r)=>n+r.finalFare*db.settings.commission/100,0)};}),categoryDistribution=db.categories.map(c=>({category:c.id,rides:db.rides.filter(r=>r.category===c.id).length}));return send(res,200,{metrics:{customers:customers.length,drivers:drivers.length,online:drivers.filter(d=>d.online).length,pending:drivers.filter(d=>d.status!=='approved').length,rides:db.rides.length,active:db.rides.filter(r=>ACTIVE_RIDE_STATUSES.includes(r.status)).length,completed:completed.length,cancelled:cancelled.length,todayRides:todayRides.length,todayCompleted:todayCompleted.length,todayRevenue:todayCompleted.reduce((n,r)=>n+r.finalFare*db.settings.commission/100,0),revenue,averageFare:completed.length?Math.round(completed.reduce((n,r)=>n+r.finalFare,0)/completed.length):0,averageRating:db.ratings.length?Number((db.ratings.reduce((n,r)=>n+r.rating,0)/db.ratings.length).toFixed(2)):0,cancellationRate:db.rides.length?Number((cancelled.length*100/db.rides.length).toFixed(1)):0},analytics:{ridesPerDay:days,revenuePerDay:days,categoryDistribution,driverVerification:{approved:drivers.filter(d=>d.status==='approved').length,pending:drivers.filter(d=>d.status!=='approved').length,rejected:drivers.filter(d=>d.status==='rejected').length}},activeSos:db.safetyIncidents.filter(i=>i.status==='open').slice(0,20),users:db.users.map(safe),rides:db.rides.map(r=>safeRide(r,user)),categories:db.categories,settings:db.settings});}
   if(method==='POST'&&p==='/api/admin/driver-status'){need('admin');const b=await body(req),d=db.users.find(u=>u.id===b.driverId&&u.role==='driver');if(!d)throw Object.assign(new Error('Driver not found'),{status:404});d.status=b.status;d.online=b.status==='approved'?d.online:false;audit(user,'driver.status','driver',d.id,{status:b.status});save();return send(res,200,{driver:safe(d)});}
   if(method==='POST'&&p==='/api/admin/settings'){need('admin');const b=await body(req);db.settings={...db.settings,...b};audit(user,'settings.update','app','settings',{fields:Object.keys(b)});save();return send(res,200,{settings:db.settings});}
   throw Object.assign(new Error('API route not found'),{status:404});
 }
-const allowedOrigins=new Set([process.env.CLIENT_URL,process.env.ADMIN_URL,`http://localhost:${PORT}`,`http://127.0.0.1:${PORT}`].filter(Boolean));
+const allowedOrigins=new Set([appConfig.clientUrl,appConfig.adminUrl,`http://localhost:${PORT}`,`http://127.0.0.1:${PORT}`].filter(Boolean));
 const server=http.createServer(async(req,res)=>{
-  const url=new URL(req.url,'http://localhost'),origin=req.headers.origin,requestId=crypto.randomUUID();
-  res.setHeader('X-Request-Id',requestId);res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('X-Frame-Options','DENY');res.setHeader('Referrer-Policy','strict-origin-when-cross-origin');res.setHeader('Permissions-Policy','geolocation=(self), camera=(), microphone=()');res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self' 'unsafe-inline' https://checkout.razorpay.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://*.razorpay.com; connect-src 'self' https://*.razorpay.com; frame-src https://api.razorpay.com https://checkout.razorpay.com; frame-ancestors 'none'");
-  if(origin&&allowedOrigins.has(origin)){res.setHeader('Access-Control-Allow-Origin',origin);res.setHeader('Vary','Origin');res.setHeader('Access-Control-Allow-Credentials','true');}
-  if(origin&&IS_PROD&&!allowedOrigins.has(origin)&&url.pathname.startsWith('/api/'))return send(res,403,{error:'Origin is not allowed',requestId});
-  res.setHeader('Access-Control-Allow-Headers','Authorization, Content-Type, Idempotency-Key');res.setHeader('Access-Control-Allow-Methods','GET, POST, OPTIONS');
-  if(req.method==='OPTIONS'){res.writeHead(204);return res.end();}
+  const url=new URL(req.url,'http://localhost'),requestId=crypto.randomUUID();
+  applySecurityHeaders(res,requestId);
+  if(applyCorsHeaders(req,res,url,{allowedOrigins,isProd:IS_PROD}))return send(res,403,{error:'Origin is not allowed',requestId});
+  if(handleOptions(req,res))return;
   try{if(url.pathname.startsWith('/api/'))await api(req,res,url);else if(!staticFile(req,res))staticFile({url:'/'},res);}catch(e){send(res,e.status||500,{error:e.message||'Unexpected server error',requestId});}
 });
 setupSocketIO(server);
