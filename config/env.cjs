@@ -31,7 +31,9 @@ function createAppConfig(rootDir) {
     clientUrl: process.env.CLIENT_URL,
     adminUrl: process.env.ADMIN_URL,
     razorpayKeyId: String(process.env.RAZORPAY_KEY_ID || '').trim(),
-    razorpayKeySecret: process.env.RAZORPAY_KEY_SECRET
+    razorpayKeySecret: process.env.RAZORPAY_KEY_SECRET,
+    stripeSecretKey: String(process.env.STRIPE_SECRET_KEY || '').trim(),
+    stripePublishableKey: String(process.env.STRIPE_PUBLISHABLE_KEY || '').trim()
   };
 }
 

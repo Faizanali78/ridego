@@ -231,7 +231,7 @@ window.adminReports = function () {
 
 window.downloadReport = async function (type) {
   try {
-    const response = await fetch(`/api/admin/reports/${type}`, { headers: { Authorization: `Bearer ${state.token}` } });
+    const response = await fetch(apiUrl(`/api/admin/reports/${type}`), { headers: { Authorization: `Bearer ${state.token}` } });
     if (!response.ok) throw Error((await response.json()).error || 'Export failed');
     const blob = await response.blob(), link = document.createElement('a');
     link.href = URL.createObjectURL(blob);

@@ -10,7 +10,7 @@ RideGo now uses a controller/model/middleware-oriented backend layout while keep
 
 - `config/env.cjs`
   - Loads `.env`
-  - Builds app config such as port, MongoDB URI, JWT secrets, Razorpay keys, and public/data paths
+  - Builds app config such as port, MongoDB URI, JWT secrets, Stripe/Razorpay keys, and public/data paths
 
 ## Models
 
@@ -26,7 +26,7 @@ These model constants are imported by `server.cjs` so ride matching, active ride
 
 - `middleware/httpMiddleware.cjs`
   - Security headers
-  - Razorpay-compatible CSP
+  - Payment-provider-compatible CSP
   - CORS
   - OPTIONS/preflight handling
 

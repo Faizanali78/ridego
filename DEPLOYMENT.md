@@ -9,7 +9,7 @@ Deploy the complete application to Render from this repository. `render.yaml` in
 3. Render will read `render.yaml`; for a manual web service use build command `npm install && node --check server.cjs` and start command `npm start`.
 4. Set `JWT_ACCESS_SECRET` and `JWT_REFRESH_SECRET` to long random values, then add provider credentials from `.env.example`.
 5. Set `CLIENT_URL` and `ADMIN_URL` to the exact HTTPS origins that may call the API.
-6. Set `MONGODB_URI` for persistent data. Razorpay variables are optional until real payments are enabled.
+6. Set `MONGODB_URI` for persistent data. Stripe variables are optional until real payments are enabled.
 7. Deploy and verify `/api/health`.
 
 The bundled JSON repository is appropriate for demonstrations and local development. Render's free filesystem can be replaced at any time, so it must not hold production accounts or payments. For persistent production use, replace the repository calls with MongoDB Atlas collections and transactions before accepting real users.
@@ -31,9 +31,11 @@ Create a database user with least-privilege access, allow Render's outbound netw
 
 Enable Maps JavaScript, Places, Routes, Geocoding and Distance Matrix APIs. Restrict `GOOGLE_MAPS_API_KEY` to the deployed frontend origins. Replace the install-free visual map with the Google Maps adapter while keeping the existing coordinate API contract.
 
-## Razorpay
+## Stripe payments
 
-Set `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET` and `RAZORPAY_WEBHOOK_SECRET`. Replace local signed order creation with Razorpay Orders, pass the returned order to Checkout, and send its payment ID and signature to `/api/payments/verify`. Configure the webhook URL on HTTPS and preserve the existing idempotency keys and server-authoritative amount checks.
+Set `STRIPE_SECRET_KEY` and `STRIPE_PUBLISHABLE_KEY`. When `STRIPE_SECRET_KEY` is present, `/api/payments/orders` creates a Stripe Checkout Session and the customer is redirected to Stripe's hosted payment page. After Stripe returns to the app, `/api/payments/verify` retrieves the Checkout Session from Stripe and only marks the ride paid when the session is complete and paid. Keep the server-authoritative fare checks and idempotency keys enabled.
+
+Razorpay remains available as a fallback by setting `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET` and `RAZORPAY_WEBHOOK_SECRET`.
 
 ## Cloudinary, email and SMS
 
@@ -44,7 +46,7 @@ Set the Cloudinary variables for driver documents and avatars. Restrict upload f
 - Replace JSON storage with MongoDB Atlas and transactional repositories.
 - Keep the built-in secure HttpOnly access/refresh cookies and refresh replay protection enabled; add CSRF tokens if the frontend and API are split across origins.
 - Restrict CORS instead of the local wildcard.
-- Add Razorpay webhook verification and provider-side refunds.
+- Add Stripe webhook verification and provider-side refunds.
 - Store uploads in Cloudinary with signed access.
 - Add Google Maps key/domain restrictions.
 - Put the application behind HTTPS and a managed rate limiter.

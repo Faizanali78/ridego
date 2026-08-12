@@ -51,16 +51,16 @@ Demo accounts:
 
 In addition to the authentication, ride and live tracking routes, finance endpoints are available at `GET /api/wallets`, `POST /api/wallets/topup`, `GET /api/payments`, `POST /api/payments/orders`, `POST /api/payments/verify`, `POST /api/payments/wallet`, `GET /api/drivers/earnings`, `GET|POST /api/withdrawals`, `POST /api/admin/withdrawals/:id/:action`, and `POST /api/admin/refunds`.
 
-The offline build uses a local HMAC-signed test payment provider so the complete order and verification flow works without internet access. When Razorpay credentials and internet access are available, replace the local order creation response with Razorpay Orders and send its checkout signature to the existing verification endpoint. Fare and payment amounts remain server-controlled.
+The offline build uses a local HMAC-signed test payment provider so the complete order and verification flow works without internet access. When Stripe credentials are configured, `/api/payments/orders` creates a Stripe Checkout Session and the app verifies the returned session with Stripe before marking the ride paid. Razorpay credentials remain supported as a fallback. Fare and payment amounts remain server-controlled.
 
 Admin management APIs live under `/api/admin/customers`, `/api/admin/drivers`, `/api/admin/rides`, `/api/admin/pricing`, `/api/admin/coupons`, `/api/admin/logs`, `/api/admin/reports/:type`, `/api/admin/users/:id/status`, and `/api/admin/support/:id/reply`. List endpoints use `page`, `limit`, `q`, and relevant status/category filters.
 
 Final feature APIs include `/api/notifications`, `/api/ratings`, `/api/safety/sos`, `/api/rides/:id/share`, `/api/public/rides/share/:token`, `/api/incentives`, `/api/service-zones`, `/api/admin/zones`, and `/api/admin/incentives`.
 
-See `DEPLOYMENT.md` for Render, Vercel, MongoDB Atlas, Google Maps, Razorpay, Cloudinary, email and SMS setup. The application runs fully offline as a demonstration, but the local JSON repository and signed test-payment provider must be replaced before handling real users or money.
+See `DEPLOYMENT.md` for Render, Vercel, MongoDB Atlas, Google Maps, Stripe/Razorpay, Cloudinary, email and SMS setup. The application runs fully offline as a demonstration, but the local JSON repository and signed test-payment provider must be replaced before handling real users or money.
 
 See `API.md` for the complete route and authorization reference.
 
 ## Production migration
 
-The single dependency-free file makes the app runnable now. For an internet-enabled production deployment, keep the API contracts and replace `data.json` with MongoDB/Mongoose collections (including `2dsphere` driver locations), add Socket.IO rooms for live tracking, and connect the credentials in `.env.example` to Google Maps, Razorpay, Cloudinary, email and SMS providers. Put secrets in Render/Vercel environment settings, use HTTPS + secure HttpOnly refresh cookies, and use a managed database; never use the local JSON store for production.
+For an internet-enabled production deployment, keep the API contracts and replace `data.json` with MongoDB/Mongoose collections (including `2dsphere` driver locations), add Socket.IO rooms for live tracking, and connect the credentials in `.env.example` to Google Maps, Stripe, Cloudinary, email and SMS providers. Put secrets in Render/Vercel environment settings, use HTTPS + secure HttpOnly refresh cookies, and use a managed database; never use the local JSON store for production.

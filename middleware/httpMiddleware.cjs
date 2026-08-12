@@ -6,7 +6,7 @@ function applySecurityHeaders(res, requestId) {
   res.setHeader('Permissions-Policy', 'geolocation=(self), camera=(), microphone=()');
   res.setHeader(
     'Content-Security-Policy',
-    "default-src 'self'; script-src 'self' 'unsafe-inline' https://checkout.razorpay.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://*.razorpay.com; connect-src 'self' https://*.razorpay.com; frame-src https://api.razorpay.com https://checkout.razorpay.com; frame-ancestors 'none'"
+    "default-src 'self'; script-src 'self' 'unsafe-inline' https://checkout.razorpay.com https://js.stripe.com https://cdn.socket.io; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://*.razorpay.com https://*.stripe.com; connect-src 'self' https://*.razorpay.com https://*.stripe.com; frame-src https://api.razorpay.com https://checkout.razorpay.com https://checkout.stripe.com https://js.stripe.com; frame-ancestors 'none'"
   );
 }
 

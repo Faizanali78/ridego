@@ -89,9 +89,27 @@ function setUserLocation(user,point,heading=0){const location=storedPoint(point)
 function distance(a,b){ const pa=pointOf(a),pb=pointOf(b),r=6371,d=x=>x*Math.PI/180, x=d(pb.lat-pa.lat),y=d(pb.lng-pa.lng),z=Math.sin(x/2)**2+Math.cos(d(pa.lat))*Math.cos(d(pb.lat))*Math.sin(y/2)**2; return 2*r*Math.asin(Math.sqrt(z)); }
 function estimate(data){ const routeKm=validPoint(data.pickupLocation)&&validPoint(data.destinationLocation)?distance(data.pickupLocation,data.destinationLocation)*1.22:0,km=Math.max(1,Number(data.distance)||routeKm||5), mins=Math.max(5,Number(data.minutes)||Math.round(km*4)); return db.categories.filter(c=>c.enabled).map(c=>{ const subtotal=Math.max(c.min,c.base+c.perKm*km+c.perMin*mins); const fee=db.settings.platformFee, tax=Math.round((subtotal+fee)*db.settings.taxPct)/100, fare=Math.round((subtotal+fee+tax)*db.settings.surge); return {...c,distance:Number(km.toFixed(1)),minutes:mins,fare,breakdown:{base:c.base,distance:Math.round(c.perKm*km),time:Math.round(c.perMin*mins),platformFee:fee,tax, surge:db.settings.surge}}; }); }
 function nearbyDrivers(category,pickup,excluded=[]){if(!validPoint(pickup))return [];const busy=new Set(db.rides.filter(r=>ACTIVE_RIDE_STATUSES.includes(r.status)).map(r=>r.driverId));return db.users.filter(d=>d.role==='driver'&&d.status==='approved'&&d.online&&d.category===category&&validPoint(d.location)&&!busy.has(d.id)&&!excluded.includes(d.id)).map(d=>({...d,distanceToPickup:Number(distance(d.location,pickup).toFixed(2))})).filter(d=>d.distanceToPickup<=Number(db.settings.searchRadius||5)).sort((a,b)=>a.distanceToPickup-b.distanceToPickup);}
-const RAZORPAY_KEY_ID=appConfig.razorpayKeyId,PAYMENT_SECRET=appConfig.razorpayKeySecret||SECRET;
+const RAZORPAY_KEY_ID=appConfig.razorpayKeyId,PAYMENT_SECRET=appConfig.razorpayKeySecret||SECRET,STRIPE_SECRET_KEY=appConfig.stripeSecretKey,STRIPE_PUBLISHABLE_KEY=appConfig.stripePublishableKey;
 const paymentSignature=(orderId,paymentId)=>crypto.createHmac('sha256',PAYMENT_SECRET).update(`${orderId}|${paymentId}`).digest('hex');
 function razorpayOrder(amount,receipt){return new Promise((resolve,reject)=>{const payload=JSON.stringify({amount:Math.round(amount*100),currency:'INR',receipt,payment_capture:1}),req=https.request({hostname:'api.razorpay.com',path:'/v1/orders',method:'POST',auth:`${RAZORPAY_KEY_ID}:${PAYMENT_SECRET}`,headers:{'Content-Type':'application/json','Content-Length':Buffer.byteLength(payload)}},res=>{let raw='';res.on('data',chunk=>raw+=chunk);res.on('end',()=>{try{const data=JSON.parse(raw||'{}');res.statusCode>=200&&res.statusCode<300?resolve(data):reject(new Error(data.error?.description||'Razorpay order creation failed'));}catch(error){reject(error);}});});req.on('error',reject);req.write(payload);req.end();});}
+function requestOrigin(req){const proto=String(req.headers['x-forwarded-proto']||'').split(',')[0]||'http',host=req.headers['x-forwarded-host']||req.headers.host||`localhost:${PORT}`;return `${proto}://${host}`;}
+function stripeApi(method,pathName,params,idempotencyKey){return new Promise((resolve,reject)=>{const payload=params?new URLSearchParams(params).toString():'',headers={Authorization:`Bearer ${STRIPE_SECRET_KEY}`};if(payload){headers['Content-Type']='application/x-www-form-urlencoded';headers['Content-Length']=Buffer.byteLength(payload);}if(idempotencyKey)headers['Idempotency-Key']=idempotencyKey;const req=https.request({hostname:'api.stripe.com',path:pathName,method,headers},res=>{let raw='';res.on('data',chunk=>raw+=chunk);res.on('end',()=>{try{const data=JSON.parse(raw||'{}');res.statusCode>=200&&res.statusCode<300?resolve(data):reject(new Error(data.error?.message||'Stripe request failed'));}catch(error){reject(error);}});});req.on('error',reject);if(payload)req.write(payload);req.end();});}
+async function stripeCheckoutSession({payment,ride,user,origin,idempotencyKey}){const amountPaise=Math.round(payment.amount*100),session=await stripeApi('POST','/v1/checkout/sessions',[
+  ['mode','payment'],
+  ['success_url',`${origin}/?stripe_session_id={CHECKOUT_SESSION_ID}`],
+  ['cancel_url',`${origin}/?stripe_payment_cancelled=1`],
+  ['client_reference_id',payment.id],
+  ['line_items[0][quantity]','1'],
+  ['line_items[0][price_data][currency]','inr'],
+  ['line_items[0][price_data][unit_amount]',String(amountPaise)],
+  ['line_items[0][price_data][product_data][name]',`RideGo ride ${ride.rideCode}`],
+  ['metadata[rideId]',ride.id],
+  ['metadata[paymentId]',payment.id],
+  ['payment_intent_data[metadata][rideId]',ride.id],
+  ['payment_intent_data[metadata][paymentId]',payment.id],
+  ...(user.email?[['customer_email',user.email]]:[])
+],idempotencyKey);return {session,amountPaise};}
+async function stripeCheckoutStatus(sessionId){return stripeApi('GET',`/v1/checkout/sessions/${encodeURIComponent(sessionId)}`);}
 function walletEntry(user,type,amount,reason,reference,details={}){const entry={id:id('wtx'),userId:user.id,wallet:user.role,type,amount:Number(amount),reason,reference,rideId:details.rideId||null,balanceAfter:user.wallet||0,createdAt:now(),...details};db.walletTransactions.unshift(entry);return entry;}
 function earningForRide(ride){
   const gross=Math.round(Number(ride.finalFare)||0),commission=Math.round(gross*Number(db.settings.commission||0))/100,net=Math.round((gross-commission)*100)/100;
@@ -307,16 +325,30 @@ async function api(req,res,url){ const method=req.method, p=url.pathname, user=a
     if(!key)throw Object.assign(new Error('Idempotency key is required'),{status:400});
     const prior=db.payments.find(x=>x.idempotencyKey===key&&x.userId===user.id);
     if(prior)return send(res,200,{order:safePayment(prior),testPayment:prior.provider==='local_signed'?{paymentId:prior.testPaymentId,signature:prior.expectedSignature}:undefined});
-    let orderId=id('order'),provider='local_signed',razorpay=null;
-    if(RAZORPAY_KEY_ID&&appConfig.razorpayKeySecret){razorpay=await razorpayOrder(ride.finalFare,ride.rideCode);orderId=razorpay.id;provider='razorpay';}
+    let orderId=id('order'),provider='local_signed',razorpay=null,stripe=null,amountPaise=Math.round(ride.finalFare*100);
     const testPaymentId=id('payref'),payment={id:id('pay'),orderId,testPaymentId,userId:user.id,rideId:ride.id,type:'ride_payment',amount:ride.finalFare,currency:'INR',status:'created',provider,idempotencyKey:key,expectedSignature:paymentSignature(orderId,testPaymentId),createdAt:now()};
-    db.payments.unshift(payment);save();return send(res,201,{order:{...safePayment(payment),keyId:provider==='razorpay'?RAZORPAY_KEY_ID:undefined,amountPaise:Math.round(ride.finalFare*100),razorpay},testPayment:provider==='local_signed'?{paymentId:testPaymentId,signature:payment.expectedSignature}:undefined});
+    if(STRIPE_SECRET_KEY){
+      provider='stripe';payment.provider=provider;
+      const created=await stripeCheckoutSession({payment,ride,user,origin:requestOrigin(req),idempotencyKey:key});
+      stripe={id:created.session.id,url:created.session.url,paymentStatus:created.session.payment_status};
+      orderId=created.session.id;payment.orderId=orderId;payment.stripeSessionId=created.session.id;payment.stripeCheckoutUrl=created.session.url;amountPaise=created.amountPaise;
+    }else if(RAZORPAY_KEY_ID&&appConfig.razorpayKeySecret){razorpay=await razorpayOrder(ride.finalFare,ride.rideCode);orderId=razorpay.id;provider='razorpay';payment.provider=provider;payment.orderId=orderId;payment.expectedSignature=paymentSignature(orderId,testPaymentId);}
+    db.payments.unshift(payment);save();return send(res,201,{order:{...safePayment(payment),keyId:provider==='razorpay'?RAZORPAY_KEY_ID:STRIPE_PUBLISHABLE_KEY||undefined,amountPaise,razorpay,stripe,checkoutUrl:stripe?.url},testPayment:provider==='local_signed'?{paymentId:testPaymentId,signature:payment.expectedSignature}:undefined});
   }
   if(method==='POST'&&p==='/api/payments/verify'){
     need('customer');
-    const b=await body(req),payment=db.payments.find(x=>x.orderId===b.orderId&&x.userId===user.id);
+    const b=await body(req),lookup=String(b.orderId||b.sessionId||b.stripeSessionId||''),payment=db.payments.find(x=>x.orderId===lookup&&x.userId===user.id);
     if(!payment)throw Object.assign(new Error('Payment order not found'),{status:404});
     if(payment.status==='captured')return send(res,200,{payment:safePayment(payment),message:'Payment was already verified.'});
+    if(payment.provider==='stripe'){
+      const session=await stripeCheckoutStatus(payment.orderId);
+      if(session.payment_status!=='paid'||session.status!=='complete')throw Object.assign(new Error('Stripe payment is not complete yet'),{status:409});
+      if(Number(session.amount_total)!==Math.round(payment.amount*100)||String(session.currency).toUpperCase()!=='INR')throw Object.assign(new Error('Stripe amount validation failed'),{status:409});
+      const ride=db.rides.find(r=>r.id===payment.rideId);
+      if(!ride||ride.finalFare!==payment.amount)throw Object.assign(new Error('Server fare validation failed'),{status:409});
+      payment.paymentId=String(session.payment_intent||session.id);payment.stripeSession={id:session.id,paymentStatus:session.payment_status,status:session.status,amountTotal:session.amount_total,currency:session.currency};
+      completePayment(ride,payment);save();return send(res,200,{payment:safePayment(payment),ride:safeRide(ride,user),message:'Payment successful.'});
+    }
     const signature=paymentSignature(payment.orderId,String(b.paymentId||'')),provided=String(b.signature||''),validSignature=provided.length===signature.length&&crypto.timingSafeEqual(Buffer.from(signature),Buffer.from(provided));
     if(!validSignature)throw Object.assign(new Error('Payment signature verification failed'),{status:400});
     const ride=db.rides.find(r=>r.id===payment.rideId);
