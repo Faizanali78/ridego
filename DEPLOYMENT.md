@@ -1,14 +1,16 @@
 # RideGo deployment guide
 
-## Recommended install-free demo deployment
+## Recommended Render deployment
 
-Deploy the complete application to Render from this repository. `render.yaml` runs syntax validation and starts `server.cjs`; no npm dependency download is needed.
+Deploy the complete application to Render from this repository. `render.yaml` installs Node dependencies, runs syntax validation, starts the app with `npm start`, and checks `/api/health`.
 
 1. Push the project to a Git repository.
 2. In Render, choose **New Blueprint** and select the repository.
-3. Set `JWT_ACCESS_SECRET` to a long random value and add provider credentials from `.env.example`.
-4. Set `CLIENT_URL` and `ADMIN_URL` to the exact HTTPS origins that may call the API.
-5. Deploy and verify `/api/health`.
+3. Render will read `render.yaml`; for a manual web service use build command `npm install && node --check server.cjs` and start command `npm start`.
+4. Set `JWT_ACCESS_SECRET` and `JWT_REFRESH_SECRET` to long random values, then add provider credentials from `.env.example`.
+5. Set `CLIENT_URL` and `ADMIN_URL` to the exact HTTPS origins that may call the API.
+6. Set `MONGODB_URI` for persistent data. Razorpay variables are optional until real payments are enabled.
+7. Deploy and verify `/api/health`.
 
 The bundled JSON repository is appropriate for demonstrations and local development. Render's free filesystem can be replaced at any time, so it must not hold production accounts or payments. For persistent production use, replace the repository calls with MongoDB Atlas collections and transactions before accepting real users.
 

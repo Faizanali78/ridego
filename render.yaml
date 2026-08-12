@@ -3,8 +3,8 @@ services:
     name: ridego
     runtime: node
     plan: free
-    buildCommand: node --check server.cjs
-    startCommand: node server.cjs
+    buildCommand: npm install && node --check server.cjs
+    startCommand: npm start
     healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
@@ -16,6 +16,10 @@ services:
       - key: CLIENT_URL
         sync: false
       - key: ADMIN_URL
+        sync: false
+      - key: MONGODB_URI
+        sync: false
+      - key: RAZORPAY_KEY_ID
         sync: false
       - key: RAZORPAY_KEY_SECRET
         sync: false
