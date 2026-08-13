@@ -1,5 +1,5 @@
 const state={token:localStorage.token||'',user:null,view:'home',options:[],ride:null,admin:null,pickupLocation:{lat:28.6139,lng:77.209},destinationLocation:{lat:28.623,lng:77.219},booking:{pickup:'Connaught Place, New Delhi',destination:'India Gate, New Delhi',distance:5,paymentMethod:'cash'},eventAbort:null,socket:null,locationWatch:null,lastLocationSent:0,activeDriverRideId:null,trackData:null};
-const API_BASE=(location.hostname==='localhost'||location.hostname==='127.0.0.1'||location.hostname.endsWith('.onrender.com'))?'':(window.RIDEGO_API_BASE||'https://ridego-lnqf.onrender.com');
+const API_BASE=window.RIDEGO_API_BASE||'';
 const apiUrl=path=>API_BASE+path;
 const $=s=>document.querySelector(s), money=n=>'₹'+new Intl.NumberFormat('en-IN').format(Math.round(n||0));
 const escapeHtml=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));

@@ -5,7 +5,7 @@ const safe = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&
 async function updateSharedRide() {
   try {
     if (!token) throw Error('This tracking link is incomplete.');
-    const base = window.RIDEGO_API_BASE || (location.hostname === 'localhost' || location.hostname === '127.0.0.1' || location.hostname.endsWith('.onrender.com') ? '' : 'https://ridego-lnqf.onrender.com');
+    const base = window.RIDEGO_API_BASE || '';
     const response = await fetch(`${base}/api/public/rides/share/${encodeURIComponent(token)}`);
     const data = await response.json();
     if (!response.ok) throw Error(data.error || 'Unable to load this ride.');
